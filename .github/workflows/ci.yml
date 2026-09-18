@@ -7,7 +7,7 @@ on:
 
 jobs:
   verify:
-    name: Lint · Typecheck · Build
+    name: Typecheck · Lint · Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,15 +20,25 @@ jobs:
           # Re-enable caching once a lockfile is committed, and switch
           # `npm install` below to `npm ci`.
 
-      # No lockfile yet → `npm install`. Switch to `npm ci` once package-lock.json exists.
+      # Runs before anything needs node_modules: the QA scripts are plain .mjs
+      # with no dependencies, and a typo in one of them is otherwise only
+      # discoverable by running it against production.
+      - name: Syntax-check the QA scripts
+        run: |
+          set -e
+          for f in scripts/qa/*.mjs; do node --check "$f"; done
+          echo "QA scripts parse cleanly"
+
+      # Typecheck comes before lint: `tsc --noEmit` is the strictest and the
+      # cheapest signal, and it is the same gate the Vercel build enforces.
       - name: Install dependencies
         run: npm install
 
-      - name: Lint
-        run: npm run lint
-
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
 
       - name: Build
         run: npm run build
