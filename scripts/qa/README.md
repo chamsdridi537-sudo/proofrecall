@@ -38,6 +38,10 @@ export QA_CAROL_PASSWORD='…'
 export APP_URL=https://proofrecall.vercel.app   # optional, this is the default
 ```
 
+The same names can live in `.env.local` at the repo root instead — `lib.mjs`
+reads that file (it is gitignored) before falling back to the environment, so the
+passwords stay out of your shell history and off every command line.
+
 ## Running
 
 In this order — later scripts assert against what the earlier ones seeded:
