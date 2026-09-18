@@ -1,4 +1,4 @@
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 /**
@@ -18,10 +18,19 @@ export default async function proxy(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
+        // Explicit signatures required: `cookies` is a union of the browser
+        // and server method shapes, so TypeScript cannot infer these
+        // parameter types contextually and reports implicit `any`.
+        getAll(): { name: string; value: string }[] {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(
+          cookiesToSet: {
+            name: string;
+            value: string;
+            options: CookieOptions;
+          }[],
+        ) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value),
           );
