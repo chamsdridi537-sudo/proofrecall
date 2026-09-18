@@ -9,7 +9,7 @@ export function GET() {
     status: "ok",
     service: "proofrecall",
     timestamp: new Date().toISOString(),
-    day: 2,
-    note: "auth + profiles + RLS live",
+    day: 3,
+    note: "testimonials + tags + RLS-bound search live",
   });
 }
