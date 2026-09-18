@@ -27,6 +27,12 @@ export type SearchResponse = {
   /** Which retrieval tier produced the rows: tsvector, trigram, or recency. */
   match_kind: MatchKind | null;
   ms: number;
+  /**
+   * True when the first PostgREST call was still outstanding after the hedge
+   * budget and a duplicate call answered first. Measured, not guessed: the
+   * latency script counts how often it fires.
+   */
+  hedged?: boolean;
   error?: string;
 };
 
