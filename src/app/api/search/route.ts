@@ -34,20 +34,25 @@ const HEDGE_AFTER_MS = 400;
 type ServerClient = Awaited<ReturnType<typeof createClient>>;
 type RpcResult = { data: unknown[] | null; error: { message: string } | null };
 
-function runSearch(
+async function runSearch(
   supabase: ServerClient,
   args: { query: string | null; tag_name: string | null; result_limit: number },
 ): Promise<RpcResult> {
-  return supabase
-    .rpc("search_testimonials", args)
-    .then((result) => ({
+  try {
+    // Awaited rather than chained: supabase-js hands back a thenable builder, so
+    // `.then(...).catch(...)` does not type-check — and PostgREST reports errors
+    // in the resolved value anyway, so the catch is only for a transport failure.
+    const result = await supabase.rpc("search_testimonials", args);
+    return {
       data: (result.data ?? null) as unknown[] | null,
       error: result.error ? { message: result.error.message } : null,
-    }))
-    .catch((err: unknown) => ({
+    };
+  } catch (err: unknown) {
+    return {
       data: null,
       error: { message: err instanceof Error ? err.message : "Search failed." },
-    }));
+    };
+  }
 }
 
 /**

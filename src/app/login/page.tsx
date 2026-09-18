@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -159,12 +160,12 @@ export default function LoginPage() {
             : "Already have an account? Sign in"}
         </button>
 
-        <a
+        <Link
           href="/"
           className="mt-2 block text-center text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
         >
           ← Back home
-        </a>
+        </Link>
       </div>
     </main>
   );

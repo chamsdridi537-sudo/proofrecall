@@ -38,7 +38,13 @@ async function seed(which) {
     method: "POST",
     token,
     headers: { Prefer: "return=representation" },
-    body: items.map(({ tags, ...rest_ }) => rest_),
+    body: items.map((item) => ({
+      quote: item.quote,
+      author: item.author,
+      author_role: item.author_role,
+      author_company: item.author_company,
+      source: item.source,
+    })),
   });
 
   const names = [...new Set(items.flatMap((item) => item.tags))];
