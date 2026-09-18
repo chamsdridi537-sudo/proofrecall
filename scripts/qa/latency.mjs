@@ -55,6 +55,7 @@ async function timed(cookie, q) {
     wall,
     server: typeof json?.ms === "number" ? json.ms : null,
     hedged: json?.hedged === true,
+    hedgeAware: typeof json?.hedged === "boolean",
     hits: (json?.results ?? []).length,
     kind: json?.results?.[0]?.match_kind ?? "-",
   };
@@ -96,6 +97,11 @@ async function main() {
 
   const checks = createChecks();
   checks.check("every warm sample is a 200", samples.every((s) => s.status === 200));
+  checks.check(
+    "the deployed build is the hedging one",
+    samples.every((s) => s.hedgeAware),
+    "no `hedged` field in the response — an older deployment is still live",
+  );
   checks.check("warm median under 1s", walls.median < WARM_BUDGET_MS, `${walls.median}ms`);
   checks.check(
     "warm p75 under 1s",

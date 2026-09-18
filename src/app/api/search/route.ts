@@ -136,7 +136,7 @@ export async function GET(request: Request) {
     tag,
     match_kind: matchKind,
     ms,
-    ...(hedged ? { hedged: true } : {}),
+    hedged,
   };
   return NextResponse.json(body);
 }
