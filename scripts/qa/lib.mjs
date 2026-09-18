@@ -81,23 +81,68 @@ export async function signIn(user) {
   return body;
 }
 
-/** One call to PostgREST with the caller's own access token, so RLS applies. */
-export async function rest(path, { method = "GET", body, token, headers = {} } = {}) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    method,
-    headers: {
-      apikey: ANON_KEY,
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...headers,
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`${method} ${path} -> ${res.status} ${text.slice(0, 400)}`);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Statuses that mean "not processed, ask again" rather than "your test is wrong". */
+const TRANSIENT_STATUSES = new Set([429, 502, 503, 504]);
+const RETRY_BACKOFF_MS = 400;
+
+/**
+ * One call to PostgREST with the caller's own access token, so RLS applies.
+ *
+ * GETs get one retry. On 2026-09-18 a `seed-day3` run died on a transport error
+ * partway through, which left two tenants empty and made `app-day4.mjs` report
+ * two false failures on the very next script — a suite that flakes once in
+ * twenty is a suite that gets ignored, so the retry is load-bearing for the
+ * suite's credibility, not for Postgres's.
+ *
+ * Writes deliberately get zero. A request that dies *after* the server received
+ * it would replay on retry, and while an insert here is protected by the unique
+ * `(user_id, quote_hash)` index from migration 0003 and the wipes are idempotent,
+ * a silently duplicated fixture row would weaken exactly the isolation tests it
+ * exists to prove. If a write ever needs retrying, give it an idempotency key
+ * first rather than a loop.
+ */
+export async function rest(
+  path,
+  { method = "GET", body, token, headers = {}, retries = method === "GET" ? 1 : 0 } = {},
+) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    if (attempt > 0) await sleep(RETRY_BACKOFF_MS * attempt);
+
+    let res = null;
+    let text = "";
+    try {
+      res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+        method,
+        headers: {
+          apikey: ANON_KEY,
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          ...headers,
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      text = await res.text();
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < retries) continue;
+      throw new Error(`${method} ${path} never got a response: ${lastError.message}`);
+    }
+
+    if (res.ok) return text ? JSON.parse(text) : null;
+
+    const message = `${method} ${path} -> ${res.status} ${text.slice(0, 400)}`;
+    if (attempt < retries && TRANSIENT_STATUSES.has(res.status)) {
+      lastError = new Error(message);
+      continue;
+    }
+    throw new Error(message);
   }
-  return text ? JSON.parse(text) : null;
+
+  throw lastError ?? new Error(`${method} ${path} failed`);
 }
 
 /**

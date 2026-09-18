@@ -1,0 +1,66 @@
+name: Keep warm
+
+# Why this exists: on the free tier the first visitor after a quiet stretch pays
+# for a cold start. Measured on 2026-09-18, the first search of a session
+# answered in 994ms-2615ms against a warm median of ~550ms, and the "cold" part
+# was split between the edge function and re-establishing the Postgres
+# connection. A product whose entire promise is "the quote, in five seconds,
+# while someone is waiting" cannot have its worst number be the first number.
+#
+# Two URLs, because they warm two different layers:
+#   /api/health    -> keeps the Vercel function and its region hot, and its `day`
+#                     field is the deploy marker we already treat as ground truth.
+#   /api/debug/rls -> performs an anonymous read through PostgREST, so it also
+#                     exercises the database connection. Free tier pauses a project
+#                     after days of inactivity, not minutes, so this is about the
+#                     per-request cold path, not about stopping a pause.
+#
+# The second one doubles as something we did not have before: an unannounced
+# RLS tripwire that fires 96 times a day. An anonymous caller must see 0 rows;
+# if that ever stops being true, this workflow goes red.
+#
+# Honest limitation, in one line: GitHub renders `schedule` in UTC and best
+# effort — runs can be delayed by minutes under load, and schedules are disabled
+# after 60 days with no repo activity. This is a mitigation, not a guarantee.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  # Lets us prove the step works today instead of waiting for the next boundary.
+  workflow_dispatch: {}
+
+# Nothing here needs a token, so ask for none.
+permissions: {}
+
+jobs:
+  warm:
+    name: Ping the free tier awake
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Hit /api/health and /api/debug/rls
+        env:
+          APP_URL: https://proofrecall.vercel.app
+        run: |
+          set -euo pipefail
+
+          health=$(curl -sS --max-time 20 "$APP_URL/api/health") || {
+            echo "::error::/api/health did not answer"
+            exit 1
+          }
+          echo "health: $health"
+
+          rls=$(curl -sS --max-time 20 "$APP_URL/api/debug/rls") || {
+            echo "::error::/api/debug/rls did not answer"
+            exit 1
+          }
+          echo "rls: $rls"
+
+          rows=$(printf '%s' "$rls" | jq -r '.rows_visible // "missing"')
+          if [ "$rows" != "0" ]; then
+            echo "::error::anonymous /api/debug/rls returned $rows rows — RLS has regressed"
+            exit 1
+          fi
+
+          day=$(printf '%s' "$health" | jq -r '.day // "missing"')
+          echo "still standing: day=$day, anonymous rows=$rows"
