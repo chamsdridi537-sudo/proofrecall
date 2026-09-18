@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import CsvUpload from "@/components/csv-upload";
 import type { SearchResponse, TestimonialRow } from "@/lib/types";
 
 const DEBOUNCE_MS = 250;
@@ -9,18 +10,29 @@ const SAMPLE_BATCH = `"Switching to ProofRecall paid for itself in one week." �
 "We finally stopped losing quotes in Slack threads." — Priya Raman, RevOps Lead, Kestrel #pricing #pain-points`;
 
 /**
- * The whole Day 3 surface: search box, tag filter, results, paste-a-batch import.
+ * The dashboard surface: search box, tag filter, results, and both importers
+ * (paste-a-batch from Day 3, CSV upload from Day 4).
  *
  * The user's library is never shipped to the browser as one big dump — the
  * search box asks the server (and therefore Postgres + RLS) for each query, and
  * only the "browse" state pulls the most recent rows.
+ *
+ * `initialRows` is the first browse page, fetched by the Server Component above
+ * the route. Seeding state from it means the very first paint already shows the
+ * library — or the empty state that teaches the search box — instead of a
+ * spinner that hides the product's point from a new visitor.
  */
-export default function Library() {
+export default function Library({
+  initialRows,
+}: {
+  initialRows?: TestimonialRow[] | null;
+}) {
+  const seeded = initialRows != null;
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState<string | null>(null);
-  const [rows, setRows] = useState<TestimonialRow[]>([]);
+  const [rows, setRows] = useState<TestimonialRow[]>(initialRows ?? []);
   const [meta, setMeta] = useState<SearchResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!seeded);
   const [error, setError] = useState<string | null>(null);
 
   const [batch, setBatch] = useState("");
@@ -29,6 +41,8 @@ export default function Library() {
 
   const [refreshKey, setRefreshKey] = useState(0);
   const controller = useRef<AbortController | null>(null);
+  // The Server Component already answered this exact browse query; don't ask twice.
+  const serverRowsPending = useRef(seeded);
 
   // Debounce keystrokes: the whole promise of the product is that a search is
   // instant, so there is no reason to hit Postgres on every character.
@@ -39,6 +53,11 @@ export default function Library() {
   }, [query]);
 
   useEffect(() => {
+    if (serverRowsPending.current) {
+      serverRowsPending.current = false;
+      return;
+    }
+
     controller.current?.abort();
     const own = new AbortController();
     controller.current = own;
@@ -94,6 +113,7 @@ export default function Library() {
       const body = (await res.json()) as {
         imported?: number;
         skipped?: string[];
+        duplicates?: string[];
         truncated?: boolean;
         message?: string;
       };
@@ -102,6 +122,9 @@ export default function Library() {
       setBatch("");
       setImportNote(
         `Added ${body.imported ?? 0} testimonial${body.imported === 1 ? "" : "s"}` +
+          (body.duplicates?.length
+            ? `, ${body.duplicates.length} already in your library`
+            : "") +
           (body.skipped?.length ? `, skipped ${body.skipped.length}` : "") +
           (body.truncated ? " (batch capped at 50)" : ""),
       );
@@ -115,6 +138,10 @@ export default function Library() {
 
   const inputClasses =
     "w-full rounded-full border border-zinc-300 bg-white px-4 py-2.5 text-sm outline-none focus:border-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:focus:border-zinc-100";
+
+  // No query and no filter means the list *is* the library, so an empty result
+  // here is the first-run state rather than a search that missed.
+  const browsing = debounced.length === 0 && tag === null;
 
   return (
     <div className="w-full max-w-3xl">
@@ -191,20 +218,26 @@ export default function Library() {
               {row.author_company && <span>{row.author_company}</span>}
               {row.source && <span>via {row.source}</span>}
             </div>
-            {(row.tags?.length ?? 0) > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {row.tags?.map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => setTag(name)}
-                    className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400"
-                  >
-                    #{name}
-                  </button>
-                ))}
-              </div>
-            )}
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              {(row.tags?.length ?? 0) === 0 && (
+                <span className="text-[11px] text-zinc-400">untagged</span>
+              )}
+              {(row.tags ?? []).map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => setTag(name)}
+                  aria-label={`Filter by tag ${name}`}
+                  className={`rounded-full px-2 py-0.5 text-[11px] transition ${
+                    tag === name
+                      ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                      : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+                  }`}
+                >
+                  #{name}
+                </button>
+              ))}
+            </div>
             {row.match_kind && row.match_kind !== "recent" && (
               <p className="mt-3 text-[11px] tracking-wide text-zinc-400 uppercase">
                 matched by {row.match_kind}
@@ -213,15 +246,47 @@ export default function Library() {
             )}
           </li>
         ))}
-        {!loading && rows.length === 0 && !error && (
+        {!loading && rows.length === 0 && !error && browsing && (
+          <li className="rounded-2xl border border-dashed border-zinc-300 p-8 text-center dark:border-zinc-700">
+            <p className="text-sm font-medium">Your library is empty</p>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-zinc-500">
+              Add the testimonials you already have — from email, Slack,
+              G2, a survey export, anywhere. Then, five seconds before a sales
+              call, type a word like <span className="font-medium">pricing</span>{" "}
+              and the right quote comes back, even if you mistype it.
+            </p>
+            <p className="mt-4 text-xs text-zinc-400">
+              Paste a batch or upload a CSV below. Duplicates are skipped, not
+              re-imported.
+            </p>
+          </li>
+        )}
+        {!loading && rows.length === 0 && !error && !browsing && (
           <li className="rounded-2xl border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700">
-            Nothing matches that yet. Paste a batch below to grow the library.
+            {debounced.length > 0 ? (
+              <>
+                Nothing matches{" "}
+                <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                  “{debounced}”
+                </span>
+                {tag ? ` under #${tag}` : ""} yet.
+              </>
+            ) : (
+              <>Nothing is tagged{" "}
+                <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                  #{tag}
+                </span>{" "}
+                yet.</>
+            )}
+            <span className="mt-1 block text-xs text-zinc-400">
+              Reset to browse everything, or add another quote below.
+            </span>
           </li>
         )}
       </ul>
 
       <section className="mt-8 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
-        <h2 className="text-sm font-semibold">Import a batch</h2>
+        <h2 className="text-sm font-semibold">Add testimonials</h2>
         <p className="mt-1 text-xs text-zinc-500">
           One testimonial per line, or separate them with a blank line. Use
           <span className="font-medium"> — Author, Role, Company </span>
@@ -260,6 +325,8 @@ export default function Library() {
             </span>
           )}
         </div>
+
+        <CsvUpload onImported={() => setRefreshKey((key) => key + 1)} />
       </section>
     </div>
   );
