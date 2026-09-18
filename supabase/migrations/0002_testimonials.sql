@@ -7,7 +7,14 @@
 --
 -- NOTE: keep every statement free of `--` comments and on ONE line when pasting
 -- into the dashboard SQL Editor — Monaco auto-indents multi-line input and
--- appends at the cursor instead of replacing it.
+-- appends at the cursor instead of replacing it. Use exactly one fill per empty
+-- tab, then run.
+--
+-- NOTE: the dashboard runs a whole batch inside ONE transaction. A verification
+-- `raise exception '...'` at the end of a DO block therefore rolls the entire
+-- batch back — the editor still prints your message, so the change looks applied
+-- while the database is unchanged. Use `raise notice` for verification output
+-- and confirm applied changes out of band (e.g. through PostgREST).
 
 -- 0. Idempotent guards (these trigger the dashboard's "Potential issue" prompt)
 drop function if exists public.search_testimonials(text, text, integer);
@@ -159,11 +166,21 @@ create policy "testimonial_tags_delete_own"
 --    function runs as the calling user, so RLS filters every tier. Ranking is
 --    ts_rank then recency; if full text finds nothing we fall back to trigram
 --    word-similarity so a typo like "prcing" still surfaces the quote.
---    Tier 2 uses `quote <% query`, which is word_similarity(query, quote) above
---    pg_trgm.word_similarity_threshold. The threshold stays at the default 0.3:
---    it cannot be lowered per function because the dashboard role is not a true
---    superuser ("permission denied to set parameter"). `<%` is the index-usable
---    operator form, so the trigram GIN index still applies.
+--    Tier 2 compares word_similarity(query, quote) against an explicit 0.4
+--    cutoff instead of using the `quote <% query` operator. Reason, measured on
+--    this database: pg_trgm.word_similarity_threshold reports source "default"
+--    with setting 0.6, and word_similarity('prcing', the pricing quote) is only
+--    0.571 — so the operator form silently returned zero rows. The threshold
+--    cannot be pinned per function ("permission denied to set parameter": the
+--    dashboard role is not a true superuser), so the tier must not depend on it.
+--    0.4 sits between the measured noise floor (0.22-0.33 for words that occur
+--    nowhere in the library) and the typo signal (0.5-1.0).
+--    Trade-off: an expression comparison cannot use testimonials_quote_trgm_idx,
+--    so the fallback tier scans the caller's own rows only (RLS already prunes
+--    every other user's rows, and quotes are capped at 2000 characters). If a
+--    library ever grows large enough for that to hurt, lower the GUC at the role
+--    or database level and switch the predicate back to the index-usable
+--    `quote <% query` operator form.
 create or replace function public.search_testimonials(
   query text,
   tag_name text default null,
@@ -277,7 +294,7 @@ begin
     word_similarity(v_q, t.quote)::double precision,
     'trigram'::text
   from public.testimonials t
-  where t.quote <% v_q
+  where word_similarity(v_q, t.quote) >= 0.4
     and (
       tag_name is null
       or exists (
