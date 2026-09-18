@@ -34,11 +34,37 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      # Both checks copy their raw output into the job summary. That is not
+      # decoration: `tsc` and `eslint` write plain text into a log nobody can read
+      # without a token, and the summary is the one channel the exact findings
+      # come back through when the API is queried anonymously.
       - name: Typecheck
-        run: npm run typecheck
+        run: |
+          set +e
+          npm run typecheck > typecheck.log 2>&1
+          status=$?
+          cat typecheck.log
+          {
+            echo "### Typecheck (exit $status)"
+            echo '```'
+            cat typecheck.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
 
       - name: Lint
-        run: npm run lint
+        run: |
+          set +e
+          npm run lint > lint.log 2>&1
+          status=$?
+          cat lint.log
+          {
+            echo "### Lint (exit $status)"
+            echo '```'
+            cat lint.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
 
       - name: Build
         run: npm run build
