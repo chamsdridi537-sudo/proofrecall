@@ -50,6 +50,7 @@ In this order — later scripts assert against what the earlier ones seeded:
 node scripts/qa/seed-day3.mjs    # database layer: search tiers + RLS, via PostgREST
 node scripts/qa/app-day4.mjs     # app layer: the deployed Next routes + dashboard HTML
 node scripts/qa/csv-day4.mjs     # CSV upload, duplicate guard, empty state, tag chips
+node scripts/qa/day5.mjs         # objection chips + copy-with-attribution
 node scripts/qa/latency.mjs      # warm retrieval budget (<1s), and the cold-start delta
 ```
 
@@ -120,6 +121,11 @@ reliably shows. Expected output after teardown is
   the right row numbers, a re-import that writes nothing, tags parsed from three
   different cell styles, the uploaded quotes then being searchable (exact and
   typo), and carol's rows invisible to alice.
+- **`day5.mjs`** — the retrieval promise from the seller's side: all six objection
+  chips are in the server-rendered HTML, each chip's term returns at least one row
+  through `/api/search` and on a content tier rather than recency, no two tenants
+  share a result id for any of the six, and the copy payload in `data-copy` is
+  exactly `“quote” — Author, Role, Company` with no dangling commas.
 - **`latency.mjs`** — the product promise is a number: warm searches inside a
   second at the median and at p75, with no more than one sample in five over
   budget and the in-route Postgres time fast at the median. p95, max and the

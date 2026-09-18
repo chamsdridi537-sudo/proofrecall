@@ -35,7 +35,10 @@ const bob = ssrCookie(bobSession);
 {
   const { status, json } = await app("/api/health");
   checks.check("GET /api/health is 200", status === 200, String(status));
-  checks.check("health reports day 4", json?.day === 4, JSON.stringify(json));
+  // `>=` on purpose: this script proves the Day 3/4 surfaces, and pinning it to
+  // one day number would turn every future Day-N deploy into a false failure.
+  // The exact marker is asserted by that day's own script.
+  checks.check("health reports day 4 or later", Number(json?.day) >= 4, JSON.stringify(json));
 }
 
 // 2. search through the app, correctly spelled

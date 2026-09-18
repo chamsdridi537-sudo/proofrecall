@@ -2,12 +2,46 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CsvUpload from "@/components/csv-upload";
+import { attributedQuote } from "@/lib/attribution";
+import { OBJECTIONS } from "@/lib/objections";
 import type { SearchResponse, TestimonialRow } from "@/lib/types";
 
 const DEBOUNCE_MS = 250;
 const SAMPLE_BATCH = `"Switching to ProofRecall paid for itself in one week." — Dana Whitfield, Head of Ops, Northwind via email #roi #pricing
 "The onboarding call took twenty minutes instead of two hours." — Marcus Lee, Founder, Brightloop #onboarding
 "We finally stopped losing quotes in Slack threads." — Priya Raman, RevOps Lead, Kestrel #pricing #pain-points`;
+
+/**
+ * Copy, with a fallback.
+ *
+ * `navigator.clipboard` is undefined on non-secure origins and its `writeText`
+ * rejects when the browser judges the click untrusted (Safari after a long
+ * pause, any browser in a background tab), so the API-only version fails exactly
+ * when a seller is mid-conversation — the one moment this button exists for.
+ */
+function writeToClipboard(text: string): Promise<void> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.top = "0";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } finally {
+    document.body.removeChild(area);
+  }
+  return copied
+    ? Promise.resolve()
+    : Promise.reject(new Error("Your browser blocked the copy — select the text instead."));
+}
 
 /**
  * The dashboard surface: search box, tag filter, results, and both importers
@@ -38,6 +72,11 @@ export default function Library({
   const [batch, setBatch] = useState("");
   const [importing, setImporting] = useState(false);
   const [importNote, setImportNote] = useState<string | null>(null);
+
+  // Only one row reads "Copied" at a time, so the feedback is unambiguous about
+  // which quote went to the clipboard.
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
 
   const [refreshKey, setRefreshKey] = useState(0);
   const controller = useRef<AbortController | null>(null);
@@ -136,6 +175,17 @@ export default function Library({
     }
   }, [batch, importing]);
 
+  const copyQuote = useCallback(async (id: string, text: string) => {
+    setCopyError(null);
+    try {
+      await writeToClipboard(text);
+      setCopiedId(id);
+    } catch (err: unknown) {
+      setCopiedId(null);
+      setCopyError(err instanceof Error ? err.message : "Copy failed.");
+    }
+  }, []);
+
   const inputClasses =
     "w-full rounded-full border border-zinc-300 bg-white px-4 py-2.5 text-sm outline-none focus:border-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:focus:border-zinc-100";
 
@@ -155,7 +205,46 @@ export default function Library({
         </span>
       </div>
 
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+      {/*
+        The objection-first entry. A seller does not start from the word
+        "pricing"; they start from "they said we're too expensive". The chips
+        translate the thing they remember hearing into the term a testimonial
+        actually contains, then reuse the search box — same debounce, same
+        /api/search, same RLS-filtered tiers — so there is only one retrieval
+        path to reason about.
+      */}
+      <div className="mt-4" role="group" aria-label="Search by the objection you just heard">
+        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+          They said…
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {OBJECTIONS.map((objection) => {
+            const active = tag === null && query.trim() === objection.query;
+            return (
+              <button
+                key={objection.query}
+                type="button"
+                onClick={() => {
+                  setTag(null);
+                  setQuery(objection.query);
+                  setCopiedId(null);
+                }}
+                aria-pressed={active}
+                aria-label={`Find proof against “${objection.said}”`}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                  active
+                    ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                    : "border-zinc-300 text-zinc-600 hover:border-zinc-500 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-100"
+                }`}
+              >
+                {objection.said}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-col gap-3 sm:flex-row">
         <input
           type="search"
           value={query}
@@ -205,6 +294,12 @@ export default function Library({
         </p>
       )}
 
+      {copyError && (
+        <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+          {copyError}
+        </p>
+      )}
+
       <ul className="mt-5 space-y-3">
         {rows.map((row) => (
           <li
@@ -238,6 +333,25 @@ export default function Library({
                 </button>
               ))}
             </div>
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                type="button"
+                data-copy={attributedQuote(row)}
+                onClick={(event) =>
+                  void copyQuote(
+                    row.id,
+                    event.currentTarget.dataset.copy ?? attributedQuote(row),
+                  )
+                }
+                aria-label="Copy this quote with attribution"
+                className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              >
+                {copiedId === row.id ? "Copied" : "Copy with attribution"}
+              </button>
+              {copiedId === row.id && (
+                <span className="text-xs text-zinc-500">On your clipboard</span>
+              )}
+            </div>
             {row.match_kind && row.match_kind !== "recent" && (
               <p className="mt-3 text-[11px] tracking-wide text-zinc-400 uppercase">
                 matched by {row.match_kind}
@@ -252,8 +366,9 @@ export default function Library({
             <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-zinc-500">
               Add the testimonials you already have — from email, Slack,
               G2, a survey export, anywhere. Then, five seconds before a sales
-              call, type a word like <span className="font-medium">pricing</span>{" "}
-              and the right quote comes back, even if you mistype it.
+              call, tap one of the objections above, or type a word like{" "}
+              <span className="font-medium">pricing</span>, and the right quote
+              comes back, even if you mistype it.
             </p>
             <p className="mt-4 text-xs text-zinc-400">
               Paste a batch or upload a CSV below. Duplicates are skipped, not
