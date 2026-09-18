@@ -55,21 +55,48 @@ it and the paste-import test are safe to re-run.
 
 ## Teardown
 
-The scripts only ever write as a QA user, so clearing up is deleting those
-users: **Supabase → Authentication → Users**, per tenant. The foreign keys
-cascade their `testimonials`, `tags` and `testimonial_tags` rows. To be sure
-nothing is left, run this in the SQL editor and check the counts are all zero:
+```sh
+node scripts/qa/teardown.mjs     # wipes all three libraries, as each tenant
+```
+
+It signs in as each QA user, calls the same wipe the tests use, and then checks
+from the outside that the tenant really has zero rows and finds zero results for
+queries it used to match. Because it runs as a user, that proof is RLS-scoped —
+so follow it with the global count as the dashboard role, which sees every row
+regardless of owner:
+
+The scripts only ever write as a QA user, so clearing up for good is deleting
+those users: **Supabase → Authentication → Users**, per tenant. The foreign keys
+cascade their `testimonials`, `tags` and `testimonial_tags` rows.
+
+Run this in the SQL editor to confirm both facts at once — that nothing is left,
+and that the duplicate-quote guard survived the whole exercise:
 
 ```sql
 do $$
-declare t bigint; g bigint; l bigint;
+declare t bigint; g bigint; l bigint; p bigint; u bigint; h integer; i bigint;
 begin
   select count(*) into t from public.testimonials;
   select count(*) into g from public.tags;
   select count(*) into l from public.testimonial_tags;
-  raise notice 'CLEANUP t=% g=% l=%', t, g, l;
+  select count(*) into p from public.profiles;
+  select count(*) into u from auth.users;
+  select count(*) into h from information_schema.columns
+    where table_schema = 'public' and table_name = 'testimonials'
+      and column_name = 'quote_hash';
+  select count(*) into i from pg_indexes
+    where schemaname = 'public' and tablename = 'testimonials'
+      and indexname = 'testimonials_user_quote_hash_key';
+  raise exception 'VERIFY t=% g=% l=% profiles=% users=% quote_hash_col=% uniq_idx=%',
+    t, g, l, p, u, h, i;
 end $$;
 ```
+
+`raise exception`, not `raise notice`: the dashboard renders neither the results
+grid nor notices, so a notice-only probe comes back as "Success. No rows
+returned" and proves nothing. An exception's message is the only channel this UI
+reliably shows. Expected output after teardown is
+`t=0 g=0 l=0`, with `quote_hash_col=1 uniq_idx=1`.
 
 ## What each script proves
 
@@ -95,3 +122,7 @@ end $$;
   cold-start delta are printed either way, because on a free tier the tail is
   infrastructure jitter and the honest thing is to watch it rather than average
   it away. It also counts how often the route's 400 ms hedge had to fire.
+- **`teardown.mjs`** — the run order's last step: after wiping each tenant, its
+  own `testimonials`, `tags` and `testimonial_tags` counts read zero and
+  `search_testimonials` returns nothing for words it just matched, so a stale row
+  cannot be mistaken for a passing test tomorrow.
