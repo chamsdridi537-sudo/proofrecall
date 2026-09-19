@@ -54,7 +54,10 @@ Health endpoint: `GET /api/health` → `{ "status": "ok", ... }`.
 - `/auth/callback`, `/auth/confirm`, `/auth/signout` — the OAuth-style email link handoff
 - `/dashboard` — protected. Search box, the six objection chips (they display what
   the prospect said and search the synonym union behind it, with the union in a
-  tooltip), tag filter, paste-a-batch and CSV import, and "Copy with attribution"
+  tooltip), tag filter, paste-a-batch and CSV import, and "Copy with attribution".
+  A device's first look at a non-empty library pulses the chip row once (Day 7
+  coach, localStorage-gated); an empty library renders three numbered steps in
+  the server HTML instead
 - `/api/health` — liveness probe; its `day` field is the deploy marker
 - `/api/search` — the three retrieval tiers (browse / full-text / trigram), RLS-scoped
 - `/api/testimonials` — list and paste-import
@@ -69,6 +72,12 @@ See [`.env.example`](./.env.example). Rules we follow:
 - The Supabase **anon key is not a secret** — it is safe in the browser *only
   because* Row Level Security (RLS) gates every query. RLS is on from Day 2.
 - The Supabase **service-role key is server-only** and must never reach the client.
+- `NEXT_PUBLIC_POSTHOG_KEY` / `NEXT_PUBLIC_POSTHOG_HOST` are optional. With no
+  key the analytics layer is fully silent — no request, no error — and the app
+  is exactly the Day 6 product. It is a *publishable* token by design; the
+  server-side secret keys stay out of this repo and out of the browser, and the
+  custom events are pinned to three (`signed_up`, `searched`, `copied_quote`)
+  in `src/lib/analytics.ts`, autocapture and pageviews off.
 - On Vercel, set env vars in **Project → Settings → Environment Variables**.
 
 ## Deploying (Vercel)

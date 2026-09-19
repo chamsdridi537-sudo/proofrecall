@@ -3,10 +3,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CsvUpload from "@/components/csv-upload";
 import { attributedQuote } from "@/lib/attribution";
+import { capture, identifyUser } from "@/lib/analytics";
 import { OBJECTIONS, searchedPhrase } from "@/lib/objections";
 import type { SearchResponse, TestimonialRow } from "@/lib/types";
 
 const DEBOUNCE_MS = 250;
+
+/**
+ * The first-run coach's "seen it" flag (Day 7). Versioned so a future coach —
+ * one that teaches tags or CSV, say — is a different key rather than a change
+ * nobody's browser remembers declining.
+ *
+ * localStorage, not a column: the coach is about *this device's* first
+ * experience, it must survive a signed-out visit, and a DB flag would make an
+ * anonymous landing-page visitor into a row. If it ever earns real stakes —
+ * showing the pulse until the first search on any device — it moves server-side.
+ */
+const COACH_KEY = "proofrecall.coach.v1";
 const SAMPLE_BATCH = `"Switching to ProofRecall paid for itself in one week." — Dana Whitfield, Head of Ops, Northwind via email #roi #pricing
 "The onboarding call took twenty minutes instead of two hours." — Marcus Lee, Founder, Brightloop #onboarding
 "We finally stopped losing quotes in Slack threads." — Priya Raman, RevOps Lead, Kestrel #pricing #pain-points`;
@@ -58,8 +71,10 @@ function writeToClipboard(text: string): Promise<void> {
  */
 export default function Library({
   initialRows,
+  userEmail,
 }: {
   initialRows?: TestimonialRow[] | null;
+  userEmail?: string | null;
 }) {
   const seeded = initialRows != null;
   const [query, setQuery] = useState("");
@@ -87,6 +102,42 @@ export default function Library({
   const controller = useRef<AbortController | null>(null);
   // The Server Component already answered this exact browse query; don't ask twice.
   const serverRowsPending = useRef(seeded);
+
+  // --- the first-run coach (Day 7) -------------------------------------------
+  // `false` on the server and on the very first client paint, flipped by an
+  // effect — reading localStorage during render would hydrate differently on a
+  // returning visitor's machine than in the HTML that built it. The coach only
+  // arms for a device seeing a *non-empty* library for the first time: an empty
+  // one already has its teacher built into the markup, the numbered steps.
+  const [coachPending, setCoachPending] = useState(false);
+  useEffect(() => {
+    try {
+      if (!window.localStorage.getItem(COACH_KEY)) setCoachPending(true);
+    } catch {
+      // Private-mode throws on access; a visitor who cannot be remembered has
+      // already opted out of the coach, not out of the product.
+    }
+  }, []);
+
+  // Only the *first* rows matter here: whether this is someone's first look at
+  // a library is decided before they type anything.
+  const firstLibraryView = coachPending && (initialRows?.length ?? 0) > 0;
+
+  const dismissCoach = useCallback(() => {
+    if (!coachPending) return;
+    try {
+      window.localStorage.setItem(COACH_KEY, "seen");
+    } catch {
+      /* same as above — worst case, they see the pulse again tomorrow */
+    }
+    setCoachPending(false);
+  }, [coachPending]);
+
+  // Search happens on this device as the logged-in person, not as an anonymous
+  // second account: `signed_up` and `searched` should join into one funnel.
+  useEffect(() => {
+    if (userEmail) identifyUser(userEmail);
+  }, [userEmail]);
 
   // Debounce keystrokes: the whole promise of the product is that a search is
   // instant, so there is no reason to hit Postgres on every character.
@@ -122,6 +173,16 @@ export default function Library({
         setRows(body.results ?? []);
         setMeta(body);
         setError(null);
+        if (searching) {
+          // Event #2 of three. `tier` is the honest signal and `hits` the
+          // headline — together they answer "did retrieval find it, or did
+          // recency paper over a miss?" without anyone reading a response body.
+          capture("searched", {
+            hits: (body.results ?? []).length,
+            tier: body.match_kind ?? null,
+            chip: chipQuery !== null,
+          });
+        }
       })
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
@@ -186,6 +247,10 @@ export default function Library({
     try {
       await writeToClipboard(text);
       setCopiedId(id);
+      // Event #3 of three — the money moment. A copy is the artifact that
+      // leaves the tool, so its count *is* the value delivered, which is what
+      // pricing will be argued from later.
+      capture("copied_quote", { quote_id: id });
     } catch (err: unknown) {
       setCopiedId(null);
       setCopyError(err instanceof Error ? err.message : "Copy failed.");
@@ -226,7 +291,23 @@ export default function Library({
         once a chip is active, so the operator stays discoverable rather than
         secret.
       */}
-      <div className="mt-4" role="group" aria-label="Search by the objection you just heard">
+      <div
+        className={`mt-4 ${firstLibraryView ? "coach-pulse rounded-xl" : ""}`}
+        data-coach-target="objection-chips"
+        role="group"
+        aria-label="Search by the objection you just heard"
+      >
+        {firstLibraryView && (
+          // Rendered only while the coach is armed, and it says the one thing
+          // the chips cannot say themselves: that this row is the way in.
+          <p
+            data-coach-hint="start-here"
+            className="mb-2 text-sm font-medium text-zinc-800 dark:text-zinc-200"
+          >
+            First look? Click what the prospect actually said — the right quote
+            comes back in about a second.
+          </p>
+        )}
         <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           They said…
         </p>
@@ -238,6 +319,7 @@ export default function Library({
                 key={objection.query}
                 type="button"
                 onClick={() => {
+                  dismissCoach();
                   setTag(null);
                   setQuery(objection.said);
                   setChipQuery(objection.query);
@@ -264,6 +346,7 @@ export default function Library({
           type="search"
           value={query}
           onChange={(event) => {
+            dismissCoach();
             setQuery(event.target.value);
             setChipQuery(null);
           }}
@@ -390,19 +473,43 @@ export default function Library({
           </li>
         ))}
         {!loading && rows.length === 0 && !error && browsing && (
-          <li className="rounded-2xl border border-dashed border-zinc-300 p-8 text-center dark:border-zinc-700">
-            <p className="text-sm font-medium">Your library is empty</p>
-            <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-zinc-500">
-              Add the testimonials you already have — from email, Slack,
-              G2, a survey export, anywhere. Then, five seconds before a sales
-              call, tap one of the objections above, or type a word like{" "}
-              <span className="font-medium">pricing</span>, and the right quote
-              comes back, even if you mistype it.
+          // Day 7's teacher: an empty library is not "nothing here yet", it is
+          // three numbered actions, in the order that gets a quote onto a
+          // clipboard today. Unlike the pulse, this one is in the server HTML —
+          // the first thing a new account ever sees should not wait on a
+          // JavaScript round trip to be legible.
+          <li className="rounded-2xl border border-dashed border-zinc-300 p-8 dark:border-zinc-700">
+            <p className="text-center text-sm font-medium">
+              Your library is empty — three steps to the first win
             </p>
-            <p className="mt-4 text-xs text-zinc-400">
-              Paste a batch or upload a CSV below. Duplicates are skipped, not
-              re-imported.
-            </p>
+            <ol className="mx-auto mt-5 max-w-md space-y-4">
+              {[
+                {
+                  label: "Bring what you already have.",
+                  body: "Paste a batch or upload a CSV below — from email, Slack, G2, a survey export, anywhere. Duplicates are skipped, not re-imported.",
+                },
+                {
+                  label: "Ask with the objection.",
+                  body: "Tap one of the “They said…” chips above, or type a word like pricing. A mistype still finds the quote.",
+                },
+                {
+                  label: "Leave with the proof.",
+                  body: "Copy with attribution puts the quote, the name, the role and the company on your clipboard — ready to paste into the reply.",
+                },
+              ].map((step, index) => (
+                <li key={step.label} className="flex items-start gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-xs font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900">
+                    {index + 1}
+                  </span>
+                  <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                    <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                      {step.label}
+                    </span>{" "}
+                    {step.body}
+                  </p>
+                </li>
+              ))}
+            </ol>
           </li>
         )}
         {!loading && rows.length === 0 && !error && !browsing && (

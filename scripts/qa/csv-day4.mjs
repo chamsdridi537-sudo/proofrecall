@@ -62,7 +62,8 @@ async function main() {
   );
   checks.check(
     "empty state teaches the search box",
-    before.text.includes("the right quote comes back, even if you mistype it"),
+    before.text.includes("A mistype still finds the quote."),
+    "Day 7 rewrote the empty state into numbered steps — this is the mistype promise inside step 2",
   );
 
   // --- 2. analyze: describe the file and suggest a mapping -------------------

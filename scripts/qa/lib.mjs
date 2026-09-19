@@ -51,15 +51,15 @@ if (!SUPABASE_URL || !ANON_KEY) {
  */
 export const QA_USERS = {
   alice: {
-    email: value("QA_ALICE_EMAIL") ?? "alice.day5qa@example.com",
+    email: value("QA_ALICE_EMAIL") ?? "alice.day7qa@example.com",
     password: value("QA_ALICE_PASSWORD") ?? "Replace-me-Alice-2026",
   },
   bob: {
-    email: value("QA_BOB_EMAIL") ?? "bob.day5qa@example.com",
+    email: value("QA_BOB_EMAIL") ?? "bob.day7qa@example.com",
     password: value("QA_BOB_PASSWORD") ?? "Replace-me-Bob-2026",
   },
   carol: {
-    email: value("QA_CAROL_EMAIL") ?? "carol.day5qa@example.com",
+    email: value("QA_CAROL_EMAIL") ?? "carol.day7qa@example.com",
     password: value("QA_CAROL_PASSWORD") ?? "Replace-me-Carol-2026",
   },
 };

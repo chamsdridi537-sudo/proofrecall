@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { capture, identifyUser } from "@/lib/analytics";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
@@ -37,6 +38,14 @@ export default function LoginPage() {
         });
         if (error) throw error;
 
+        // Event #1 of three, and it deliberately fires even when email
+        // confirmation is still outstanding: `confirmation_required` splits
+        // those cases apart afterwards. That split is the Day 7 signup test's
+        // whole subject — if too many signups stall before the inbox click,
+        // this is where we will see it.
+        identifyUser(email, { full_name: fullName || null });
+        capture("signed_up", { confirmation_required: !data.session });
+
         if (data.session) {
           // Confirmation disabled — signed in immediately.
           router.push("/dashboard");
@@ -53,6 +62,10 @@ export default function LoginPage() {
           password,
         });
         if (error) throw error;
+
+        // Not an event — identity. A returning user signing in on a new device
+        // (or after clearing storage) joins back to the same PostHog person.
+        identifyUser(email);
 
         router.push("/dashboard");
         router.refresh();

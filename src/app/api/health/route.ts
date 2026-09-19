@@ -9,7 +9,10 @@ export function GET() {
     status: "ok",
     service: "proofrecall",
     timestamp: new Date().toISOString(),
-    day: 6,
-    note: "objection chips search synonyms with or; copy-with-attribution live",
+    day: 7,
+    note: "first-run coach (pulse + numbered empty state); 3 analytics events wired",
+    // Which build this is, for the QA scripts: a deploy without the key is a
+    // deploy that is silent, and `day7.mjs` asserts the silence is real.
+    posthog_configured: Boolean(process.env.NEXT_PUBLIC_POSTHOG_KEY),
   });
 }

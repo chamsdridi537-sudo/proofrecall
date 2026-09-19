@@ -63,7 +63,7 @@ export default async function DashboardPage() {
       </div>
 
       <div className="mt-6 flex w-full justify-center">
-        <Library initialRows={initialRows} />
+        <Library initialRows={initialRows} userEmail={user.email} />
       </div>
     </main>
   );

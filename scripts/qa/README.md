@@ -22,9 +22,9 @@ and use these emails (or override them in the environment):
 
 | User   | Default email              | Purpose                                            |
 | ------ | -------------------------- | -------------------------------------------------- |
-| alice  | `alice.day5qa@example.com` | seeded library, paste-import target                |
-| bob    | `bob.day5qa@example.com`   | second library, same words, proves RLS             |
-| carol  | `carol.day5qa@example.com` | left empty, so CSV tests start from a clean tenant |
+| alice  | `alice.day7qa@example.com` | seeded library, paste-import target                |
+| bob    | `bob.day7qa@example.com`   | second library, same words, proves RLS             |
+| carol  | `carol.day7qa@example.com` | left empty, so CSV tests start from a clean tenant |
 
 *Auto Confirm* has to be ticked on each one: email confirmation is still on in
 this project (it gets switched off at launch week), and a script cannot click a
@@ -32,11 +32,11 @@ confirmation link. Passwords are arbitrary; they only ever exist in
 `.env.local`.
 
 ```sh
-export QA_ALICE_EMAIL=alice.day5qa@example.com
+export QA_ALICE_EMAIL=alice.day7qa@example.com
 export QA_ALICE_PASSWORD='…'
-export QA_BOB_EMAIL=bob.day5qa@example.com
+export QA_BOB_EMAIL=bob.day7qa@example.com
 export QA_BOB_PASSWORD='…'
-export QA_CAROL_EMAIL=carol.day5qa@example.com
+export QA_CAROL_EMAIL=carol.day7qa@example.com
 export QA_CAROL_PASSWORD='…'
 export APP_URL=https://proofrecall.vercel.app   # optional, this is the default
 ```
@@ -52,6 +52,7 @@ In this order — later scripts assert against what the earlier ones seeded:
 ```sh
 node scripts/qa/seed-day3.mjs    # database layer: search tiers + RLS, via PostgREST
 node scripts/qa/app-day4.mjs     # app layer: the deployed Next routes + dashboard HTML
+node scripts/qa/day7.mjs         # coach contract + numbered empty state — needs carol EMPTY
 node scripts/qa/csv-day4.mjs     # CSV upload, duplicate guard, empty state, tag chips
 node scripts/qa/day5.mjs         # objection chips + copy-with-attribution + landing copy
 node scripts/qa/day6.mjs after   # "or" retrieval, against scripts/qa/out/day6-before.json
@@ -62,15 +63,16 @@ Each exits non-zero on the first failed assertion and prints `ALL GREEN` or
 `NOT GREEN`. `csv-day4.mjs` wipes carol's own library before it starts, so both
 it and the paste-import test are safe to re-run.
 
-`day6.mjs` is the one script with a mode, and it is not re-runnable in the usual
-way. A change to the retrieval function is only worth believing if you can show
-what it did *before*, so `node scripts/qa/day6.mjs before` captures the live
-behaviour into `scripts/qa/out/day6-before.json` and must be run **once, while the
-old function is still deployed**. After the migration, `after` re-runs the same
-queries and diffs against that file: the union law holds, and every single-word
-result set is identical to the snapshot. Once the cutover has happened the
-"before" capture cannot be reproduced — the state it describes no longer exists —
-which is why the file is gitignored evidence for one run rather than a fixture.
+`day6.mjs` is the one script with a mode. A change to the retrieval function is
+only worth believing if you can show what it did *before*, so
+`node scripts/qa/day6.mjs before` captures the live behaviour into
+`scripts/qa/out/day6-before.json` and must be run **once, while the old function
+is still deployed**. After the migration, `after` re-runs the same queries and
+diffs against that file: the union law holds, and every single-word result
+keeps its shape. "Shape", not row ids — a re-seeded fixture gets fresh uuids
+every time, so the only cross-seed-stable comparison is count and tier. Since
+Day 7 the `after` mode is a normal re-runnable regression script; the "before"
+capture remains one-time evidence, which is why `out/` is gitignored.
 
 ## Teardown
 
@@ -115,7 +117,10 @@ end $$;
 grid nor notices, so a notice-only probe comes back as "Success. No rows
 returned" and proves nothing. An exception's message is the only channel this UI
 reliably shows. Expected output after teardown is
-`t=0 g=0 l=0`, with `quote_hash_col=1 uniq_idx=1`.
+`t=0 g=0 l=0`, with `quote_hash_col=1 uniq_idx=1`. `profiles=` and `users=` are
+zero only until a real account exists: since Day 7 the founder's own signup-test
+accounts live there too, and the correct reading is "users equals the number of
+deliberate real accounts, and no QA tenant is among them".
 
 ## What each script proves
 
@@ -155,6 +160,20 @@ reliably shows. Expected output after teardown is
   ANDed, quoted phrases and `-exclusion` work, and RLS survives the new operator.
   In `before` mode it asserts the opposite — that the union was unreachable by
   content — so the test is known to be capable of failing.
+- **`day7.mjs`** — the first five minutes, from the outside. The coach's
+  contract: the chip row carries the pulse's hook in the server HTML, while the
+  coached hint and the pulse class provably do *not* (they are localStorage
+  facts the server cannot know — SSR-ing them would be a hydration mismatch),
+  and the shipped stylesheet really contains the `coach-pulse` keyframe and its
+  `prefers-reduced-motion` opt-out. The lesson: carol's empty library renders
+  the three numbered steps, alice's full one does not, and the chips stay
+  visible either way. The events: `hits` and `tier` — two of the three
+  `searched` properties — are asserted from the API itself, real misses report
+  as `0 hits`, and the whole dashboard HTML is checked for posthog references
+  while no key is configured, because silence is the correct behaviour of an
+  unconfigured build. What this script cannot prove headlessly: that the pulse
+  animates and that PostHog receives events — both are browser checks, listed
+  in the daily report.
 - **`latency.mjs`** — the product promise is a number: warm searches inside a
   second at the median and at p75, with no more than one sample in five over
   budget and the in-route Postgres time fast at the median. p95, max and the
