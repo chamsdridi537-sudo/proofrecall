@@ -47,12 +47,19 @@ npm run build       # production build
 
 Health endpoint: `GET /api/health` → `{ "status": "ok", ... }`.
 
-## Routes (Day 1 — all stubs)
+## Routes
 
-- `/` — landing page (approved copy; waitlist form lands later)
-- `/login` — auth placeholder (Supabase Auth wired Day 2)
-- `/dashboard` — protected placeholder (RLS + library land Day 2+)
-- `/api/health` — liveness probe
+- `/` — landing page (objection-first copy, approved; footer reads "Free while in beta.")
+- `/login` — Supabase Auth sign-in / sign-up
+- `/auth/callback`, `/auth/confirm`, `/auth/signout` — the OAuth-style email link handoff
+- `/dashboard` — protected. Search box, the six objection chips (they display what
+  the prospect said and search the synonym union behind it, with the union in a
+  tooltip), tag filter, paste-a-batch and CSV import, and "Copy with attribution"
+- `/api/health` — liveness probe; its `day` field is the deploy marker
+- `/api/search` — the three retrieval tiers (browse / full-text / trigram), RLS-scoped
+- `/api/testimonials` — list and paste-import
+- `/api/import/csv/analyze`, `/api/import/csv/commit` — column mapping, then per-row import
+- `/api/debug/rls` — the cross-tenant tripwire the keep-warm cron calls. **Deleted on launch day.**
 
 ## Environment variables
 

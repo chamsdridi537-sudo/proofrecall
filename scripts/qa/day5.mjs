@@ -22,6 +22,7 @@ import {
   app,
   brief,
   createChecks,
+  renderedText,
   signIn,
   ssrCookie,
 } from "./lib.mjs";
@@ -29,16 +30,16 @@ import {
 const checks = createChecks();
 
 const CHIPS = [
-  { said: "It's too expensive", query: "pricing" },
-  { said: "What's the payback, honestly?", query: "roi" },
-  { said: "Rollouts always slip here", query: "onboarding" },
-  { said: "We're mid-contract with someone else", query: "migration" },
-  { said: "Security will never approve it", query: "security" },
-  { said: "Nobody on our team will use it", query: "activation" },
+  { said: "It's too expensive", query: "pricing or expensive" },
+  { said: "What's the payback, honestly?", query: "roi or paid" },
+  { said: "Rollouts always slip here", query: "onboarding or migration" },
+  { said: "We're mid-contract with someone else", query: "contract or vendor" },
+  { said: "Security will never approve it", query: "security or procurement" },
+  { said: "Nobody on our team will use it", query: "activation or team" },
 ];
 
 /** Every chip has to retrieve, or the row of buttons is decoration. */
-const EXPECTED_DAY = 5;
+const MIN_DAY = 5;
 
 async function main() {
   const aliceSession = await signIn(QA_USERS.alice);
@@ -48,10 +49,12 @@ async function main() {
   console.log("[auth] alice + bob signed in");
 
   // --- 1. the deploy marker moved -------------------------------------------
+  // Not `=== 5`: day6.mjs pins its own marker, and this suite has to stay
+  // runnable against a build that ships both features.
   const health = await app("/api/health");
   checks.check(
-    `health reports day ${EXPECTED_DAY}`,
-    health.json?.day === EXPECTED_DAY,
+    `health reports day ${MIN_DAY} or later`,
+    Number(health.json?.day ?? 0) >= MIN_DAY,
     JSON.stringify(health.json),
   );
 
@@ -61,16 +64,17 @@ async function main() {
   // collection link and the embed widget, which do not exist, and that the one
   // phrase the whole positioning hangs on survived the rewrite.
   const home = await app("/");
+  const homeCopy = renderedText(home.text);
   checks.check("landing page 200", home.status === 200, String(home.status));
   checks.check(
     "the anchor phrase is still on the page",
-    home.text.includes("find the right testimonial in 5 seconds"),
+    homeCopy.includes("find the right testimonial in 5 seconds"),
     "hero subhead lost the phrase in the rewrite",
   );
   checks.check(
     "the H1 opens on the objection, not the stopwatch",
-    home.text.includes("Answer the objection while they"),
-    brief(home.text.match(/<h1[^>]*>([\s\S]{0,120})/)?.[1] ?? "no h1", 120),
+    homeCopy.includes("Answer the objection while they"),
+    brief(homeCopy.match(/<h1[^>]*>([\s\S]{0,120})/)?.[1] ?? "no h1", 120),
   );
   for (const unBuilt of [
     "One link clients actually finish",
@@ -79,9 +83,21 @@ async function main() {
   ]) {
     checks.check(
       `the page does not advertise something unbuilt: “${unBuilt}”`,
-      !home.text.includes(unBuilt),
+      !homeCopy.includes(unBuilt),
     );
   }
+  // The footer shipped promising a waitlist form "later". Day 6 replaced it with
+  // what is true now, so assert both halves: the new line is there, the old one
+  // is not.
+  checks.check(
+    "the footer states the current price, not a placeholder",
+    homeCopy.includes("Free while in beta."),
+    brief(homeCopy.match(/<footer[^>]*>([\s\S]{0,160})/)?.[1] ?? "no footer", 160),
+  );
+  checks.check(
+    "the footer no longer says the page is a skeleton",
+    !homeCopy.includes("Day 1 skeleton"),
+  );
 
   // --- 2. the chips are in the HTML that first paints ------------------------
   const dash = await app("/dashboard", { cookie: aliceCookie });
@@ -91,12 +107,24 @@ async function main() {
     dash.text.includes('aria-label="Search by the objection you just heard"'),
   );
   checks.check("the framing copy is on the page", dash.text.includes("They said"));
+  // `&#x27;` is what React sends for the apostrophe in three of the six labels.
+  // Comparing decoded markup means this check tests the copy, not the escaping.
+  const seen = renderedText(dash.text);
   for (const chip of CHIPS) {
     checks.check(
       `chip renders: “${chip.said}”`,
-      dash.text.includes(chip.said) &&
-        dash.text.includes(`Find proof against “${chip.said}”`),
+      seen.includes(chip.said) && seen.includes(`Find proof against “${chip.said}”`),
       "label or aria-label missing",
+    );
+    // A chip displays the objection and searches the union, which means the
+    // query is no longer visible in the search box. The tooltip is what keeps
+    // `or` discoverable instead of magic, so it is part of the feature and is
+    // asserted as such — same capital OR the app renders.
+    const phrase = chip.query.replace(/\s+or\s+/i, " OR ");
+    checks.check(
+      `chip tooltip shows what it searches: “${chip.said}” → Searched: ${phrase}`,
+      dash.text.includes(`title="Searched: ${phrase}"`),
+      "tooltip missing — the union would be hidden",
     );
   }
 
@@ -141,7 +169,13 @@ async function main() {
   // The payload lives in `data-copy`, so what a click puts on the clipboard is
   // the same string this check can read. No browser, no clipboard permissions,
   // no trusting the handler to agree with the test.
-  const copied = [...dash.text.matchAll(/data-copy="([^"]*)"/g)].map((m) => m[1]);
+  //
+  // The attributes are read out of the raw markup and each payload decoded
+  // afterwards: decoding the whole document first would turn an escaped quote
+  // inside a payload into a real `"` and break the extraction it came from.
+  const copied = [...dash.text.matchAll(/data-copy="([^"]*)"/g)].map((m) =>
+    renderedText(m[1]),
+  );
   checks.check(
     "every result row carries a copy button",
     copied.length > 0 && dash.text.includes('aria-label="Copy this quote with attribution"'),

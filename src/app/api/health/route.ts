@@ -9,7 +9,7 @@ export function GET() {
     status: "ok",
     service: "proofrecall",
     timestamp: new Date().toISOString(),
-    day: 5,
-    note: "objection-first entry + copy-with-attribution live",
+    day: 6,
+    note: "objection chips search synonyms with or; copy-with-attribution live",
   });
 }

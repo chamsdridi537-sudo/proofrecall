@@ -217,6 +217,31 @@ export function brief(text, length = 72) {
   return cleaned.length > length ? `${cleaned.slice(0, length)}…` : cleaned;
 }
 
+/**
+ * Turn server-rendered HTML into the text a browser would show.
+ *
+ * React escapes `'` and `"` in text nodes *and* in attribute values, so the chip
+ * labelled "It's too expensive" arrives over the wire as `It&#x27;s too
+ * expensive`. An assertion written the way the copy reads in the UI then fails
+ * against markup nobody ever sees — which is exactly what bit the Day 5 run
+ * (three chips passed, the three with apostrophes did not).
+ *
+ * Only the entities React emits here are decoded, and `&amp;` goes last so an
+ * embedded `&amp;#x27;` cannot decode twice.
+ */
+export function renderedText(html) {
+  return String(html ?? "")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&#x22;/gi, '"')
+    .replace(/&#34;/g, '"')
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
+}
+
 /** Delete every row the caller owns — RLS keeps it inside their own tenant. */
 export async function wipeLibrary(token) {
   await rest("testimonial_tags?testimonial_id=gte.00000000-0000-0000-0000-000000000000", {

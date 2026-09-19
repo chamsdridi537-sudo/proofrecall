@@ -12,6 +12,9 @@
 
 # testing
 /coverage
+# day6.mjs before/after captures — row ids belong to whichever QA tenants were
+# seeded that round, so they are evidence for one run, not a fixture to commit.
+/scripts/qa/out/
 
 # next.js
 /.next/

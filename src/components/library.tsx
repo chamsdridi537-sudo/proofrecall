@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CsvUpload from "@/components/csv-upload";
 import { attributedQuote } from "@/lib/attribution";
-import { OBJECTIONS } from "@/lib/objections";
+import { OBJECTIONS, searchedPhrase } from "@/lib/objections";
 import type { SearchResponse, TestimonialRow } from "@/lib/types";
 
 const DEBOUNCE_MS = 250;
@@ -63,6 +63,11 @@ export default function Library({
 }) {
   const seeded = initialRows != null;
   const [query, setQuery] = useState("");
+  // What the objection chips *show* and what they *search* are different
+  // strings: a seller recognises "It's too expensive", while the query that
+  // answers it is the synonym union behind it. Typing in the box clears the
+  // override, so the box is always the source of truth for a manual search.
+  const [chipQuery, setChipQuery] = useState<string | null>(null);
   const [tag, setTag] = useState<string | null>(null);
   const [rows, setRows] = useState<TestimonialRow[]>(initialRows ?? []);
   const [meta, setMeta] = useState<SearchResponse | null>(null);
@@ -86,10 +91,11 @@ export default function Library({
   // Debounce keystrokes: the whole promise of the product is that a search is
   // instant, so there is no reason to hit Postgres on every character.
   const [debounced, setDebounced] = useState("");
+  const effectiveQuery = chipQuery ?? query;
   useEffect(() => {
-    const timer = setTimeout(() => setDebounced(query.trim()), DEBOUNCE_MS);
+    const timer = setTimeout(() => setDebounced(effectiveQuery.trim()), DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [effectiveQuery]);
 
   useEffect(() => {
     if (serverRowsPending.current) {
@@ -212,6 +218,13 @@ export default function Library({
         actually contains, then reuse the search box — same debounce, same
         /api/search, same RLS-filtered tiers — so there is only one retrieval
         path to reason about.
+
+        The chip's label stays in the box and the synonym union goes underneath
+        it, because putting `pricing or expensive` in front of someone who only
+        wanted an answer reads like the tool arguing with them. The union is
+        visible where it belongs: a tooltip per chip, and one line under the box
+        once a chip is active, so the operator stays discoverable rather than
+        secret.
       */}
       <div className="mt-4" role="group" aria-label="Search by the objection you just heard">
         <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
@@ -219,18 +232,20 @@ export default function Library({
         </p>
         <div className="mt-2 flex flex-wrap gap-2">
           {OBJECTIONS.map((objection) => {
-            const active = tag === null && query.trim() === objection.query;
+            const active = tag === null && chipQuery === objection.query;
             return (
               <button
                 key={objection.query}
                 type="button"
                 onClick={() => {
                   setTag(null);
-                  setQuery(objection.query);
+                  setQuery(objection.said);
+                  setChipQuery(objection.query);
                   setCopiedId(null);
                 }}
                 aria-pressed={active}
                 aria-label={`Find proof against “${objection.said}”`}
+                title={`Searched: ${searchedPhrase(objection.query)}`}
                 className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
                   active
                     ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
@@ -248,8 +263,11 @@ export default function Library({
         <input
           type="search"
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search your quotes — try a word, or a typo"
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setChipQuery(null);
+          }}
+          placeholder="Search your quotes — a word, a typo, or two words with or"
           aria-label="Search testimonials"
           autoFocus
           className={inputClasses}
@@ -258,6 +276,7 @@ export default function Library({
           type="button"
           onClick={() => {
             setQuery("");
+            setChipQuery(null);
             setTag(null);
           }}
           className="shrink-0 rounded-full border border-zinc-300 px-4 py-2.5 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
@@ -265,6 +284,16 @@ export default function Library({
           Reset
         </button>
       </div>
+
+      {chipQuery && (
+        <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+          Searched:{" "}
+          <span className="font-medium text-zinc-700 dark:text-zinc-300">
+            {searchedPhrase(chipQuery)}
+          </span>{" "}
+          — either word counts, because customers do not all say it the same way.
+        </p>
+      )}
 
       {knownTags.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
@@ -382,7 +411,7 @@ export default function Library({
               <>
                 Nothing matches{" "}
                 <span className="font-medium text-zinc-700 dark:text-zinc-300">
-                  “{debounced}”
+                  “{chipQuery ? searchedPhrase(chipQuery) : debounced}”
                 </span>
                 {tag ? ` under #${tag}` : ""} yet.
               </>

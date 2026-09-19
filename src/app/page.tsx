@@ -82,8 +82,7 @@ export default function Home() {
       </section>
 
       <footer className="border-t border-zinc-200 py-6 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-        © {new Date().getFullYear()} ProofRecall · Day 1 skeleton — the waitlist
-        form lands later.
+        © {new Date().getFullYear()} ProofRecall · Free while in beta.
       </footer>
     </main>
   );
