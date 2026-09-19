@@ -74,9 +74,8 @@ jobs:
         run: |
           for f in typecheck.log lint.log; do
             [ -f "$f" ] || continue
-            head -n 40 "$f" | while IFS= read -r line; do
-              echo "::error file=$f::$line"
-            done
+            msg=$(tail -c 8000 "$f" | sed -e 's/%/%25/g' -e ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error file=$f::$msg"
           done
         continue-on-error: true
 
