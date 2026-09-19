@@ -88,7 +88,7 @@ export function identifyUser(email: string, properties?: Record<string, unknown>
     ph.identify(email, properties);
     return;
   }
-  pendingIdentify = { id: email, properties };
+  pendingIdentify = { id: email, props: properties };
 }
 
 /**
