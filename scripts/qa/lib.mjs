@@ -51,34 +51,51 @@ if (!SUPABASE_URL || !ANON_KEY) {
  */
 export const QA_USERS = {
   alice: {
-    email: value("QA_ALICE_EMAIL") ?? "alice.day4qa@example.com",
+    email: value("QA_ALICE_EMAIL") ?? "alice.day5qa@example.com",
     password: value("QA_ALICE_PASSWORD") ?? "Replace-me-Alice-2026",
   },
   bob: {
-    email: value("QA_BOB_EMAIL") ?? "bob.day4qa@example.com",
+    email: value("QA_BOB_EMAIL") ?? "bob.day5qa@example.com",
     password: value("QA_BOB_PASSWORD") ?? "Replace-me-Bob-2026",
   },
   carol: {
-    email: value("QA_CAROL_EMAIL") ?? "carol.day4qa@example.com",
+    email: value("QA_CAROL_EMAIL") ?? "carol.day5qa@example.com",
     password: value("QA_CAROL_PASSWORD") ?? "Replace-me-Carol-2026",
   },
 };
 
-/** Sign in with a password and return the whole token response (see `ssrCookie`). */
+/**
+ * Sign in with a password and return the whole token response (see `ssrCookie`).
+ *
+ * Retries on a transport error only. A password grant is an authentication read
+ * — replaying it cannot duplicate anything the way replaying an insert could —
+ * and this one runs at the top of every script, so losing it to a reset
+ * connection would abort the whole suite before it asserted anything.
+ */
 export async function signIn(user) {
-  const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-    method: "POST",
-    headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ email: user.email, password: user.password }),
-  });
-  const body = await res.json();
-  if (!res.ok) {
-    throw new Error(
-      `Sign in failed for ${user.email} (${res.status}): ${JSON.stringify(body)}. ` +
-        "Create the QA users in the dashboard with auto-confirm first.",
-    );
+  for (let attempt = 0; attempt <= 2; attempt += 1) {
+    if (attempt > 0) await sleep(RETRY_BACKOFF_MS * attempt);
+    let res;
+    try {
+      res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+        method: "POST",
+        headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ email: user.email, password: user.password }),
+      });
+    } catch (err) {
+      if (attempt >= 2) throw err;
+      continue;
+    }
+    const body = await res.json();
+    if (!res.ok) {
+      throw new Error(
+        `Sign in failed for ${user.email} (${res.status}): ${JSON.stringify(body)}. ` +
+          "Create the QA users in the dashboard with auto-confirm first.",
+      );
+    }
+    return body;
   }
-  return body;
+  throw new Error(`Sign in for ${user.email} never got a response`);
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -158,30 +175,48 @@ export function ssrCookie(session) {
   return `sb-${ref}-auth-token=${"base64-" + encoded}`;
 }
 
-/** One call to the deployed app, authenticated by that cookie when given. */
+/**
+ * One call to the deployed app, authenticated by that cookie when given.
+ *
+ * `rest()` above retries GETs and this does too, for the same reason and by the
+ * same rule: only reads replay. On 2026-09-19 a `day6.mjs after` run died with a
+ * bare `fetch failed` on one of its thirty parallel `/api/search` calls — the
+ * laptop's antivirus resets TLS connections at random, which is also why
+ * `npm install` cannot run here, and a suite that aborts halfway because of that
+ * tells you nothing about the deploy. Non-2xx responses are returned, not
+ * retried: they are a result, and several scripts assert on them.
+ */
 export async function app(
   path,
-  { method = "GET", cookie, body, headers = {}, form } = {},
+  { method = "GET", cookie, body, headers = {}, form, retries = method === "GET" ? 2 : 0 } = {},
 ) {
   const isForm = form instanceof FormData;
-  const res = await fetch(`${APP_URL}${path}`, {
-    method,
-    headers: {
-      ...(cookie ? { Cookie: cookie } : {}),
-      ...(isForm ? {} : body ? { "Content-Type": "application/json" } : {}),
-      ...headers,
-    },
-    body: isForm ? form : body ? JSON.stringify(body) : undefined,
-    redirect: "manual",
-  });
-  const text = await res.text();
-  let json = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    /* HTML or an empty body — callers get `text` anyway. */
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    if (attempt > 0) await sleep(RETRY_BACKOFF_MS * attempt);
+    try {
+      const res = await fetch(`${APP_URL}${path}`, {
+        method,
+        headers: {
+          ...(cookie ? { Cookie: cookie } : {}),
+          ...(isForm ? {} : body ? { "Content-Type": "application/json" } : {}),
+          ...headers,
+        },
+        body: isForm ? form : body ? JSON.stringify(body) : undefined,
+        redirect: "manual",
+      });
+      const text = await res.text();
+      let json = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        /* HTML or an empty body — callers get `text` anyway. */
+      }
+      return { status: res.status, text, json, headers: res.headers };
+    } catch (err) {
+      if (attempt >= retries) throw err;
+    }
   }
-  return { status: res.status, text, json, headers: res.headers };
+  throw new Error(`${method} ${path} never got a response`);
 }
 
 /** A tiny assertion collector so every script ends the same way. */
