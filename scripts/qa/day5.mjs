@@ -55,6 +55,34 @@ async function main() {
     JSON.stringify(health.json),
   );
 
+  // --- 1b. the landing page sells the thing we actually built ----------------
+  // Day 5 rewrote the homepage around the objection moment. What matters here is
+  // not that the prose is nice — it is that the page no longer advertises the
+  // collection link and the embed widget, which do not exist, and that the one
+  // phrase the whole positioning hangs on survived the rewrite.
+  const home = await app("/");
+  checks.check("landing page 200", home.status === 200, String(home.status));
+  checks.check(
+    "the anchor phrase is still on the page",
+    home.text.includes("find the right testimonial in 5 seconds"),
+    "hero subhead lost the phrase in the rewrite",
+  );
+  checks.check(
+    "the H1 opens on the objection, not the stopwatch",
+    home.text.includes("Answer the objection while they"),
+    brief(home.text.match(/<h1[^>]*>([\s\S]{0,120})/)?.[1] ?? "no h1", 120),
+  );
+  for (const unBuilt of [
+    "One link clients actually finish",
+    "Feather-light embed",
+    "no Loom, no downloads",
+  ]) {
+    checks.check(
+      `the page does not advertise something unbuilt: “${unBuilt}”`,
+      !home.text.includes(unBuilt),
+    );
+  }
+
   // --- 2. the chips are in the HTML that first paints ------------------------
   const dash = await app("/dashboard", { cookie: aliceCookie });
   checks.check("dashboard 200", dash.status === 200, String(dash.status));

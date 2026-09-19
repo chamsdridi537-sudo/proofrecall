@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "ProofRecall — Find the right testimonial in 5 seconds",
   description:
-    "Recall the perfect testimonial before every sales call. ProofRecall collects client testimonials with one link clients actually finish, then organizes every quote so the right one surfaces in seconds.",
+    "Every testimonial you have ever received, ready in the second you need it. ProofRecall lets you find the right testimonial in 5 seconds — starting from the objection the prospect just raised.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

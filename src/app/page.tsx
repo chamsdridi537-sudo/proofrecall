@@ -1,15 +1,15 @@
 const bullets = [
   {
-    title: "Find the right quote in 5 seconds.",
-    body: "Tag by use case, result, or objection — then search your wall and drop the perfect proof into any call, page, or pitch. The right words, right when it matters.",
+    title: "Start from what they said.",
+    body: "Tap “It's too expensive” or “Security will never approve it” and get back the quotes that changed someone's mind about exactly that. Half-remembered phrasing and typos included — that's the whole point.",
   },
   {
-    title: "One link clients actually finish.",
-    body: "Text, audio, or video in under 60 seconds — no Loom, no downloads, no forms they abandon. Collection handled, so you can focus on using it.",
+    title: "Copy it, attribution attached.",
+    body: "One click puts the quote on your clipboard with its author, role and company still welded on, so what you paste into Slack, a deck or a reply carries the credit that makes it land.",
   },
   {
-    title: "Feather-light embed + one flat price.",
-    body: "A fast widget that won't tank your Lighthouse score. No per-seat or per-view surprises — one price, everything included.",
+    title: "One flat price. And it stays yours.",
+    body: "No per-seat or per-view surprises as your team grows. Every library is isolated in the database itself, so your customers' words never appear in another company's results.",
   },
 ];
 
@@ -36,16 +36,22 @@ export default function Home() {
 
       <section className="mx-auto w-full max-w-3xl px-6 pt-12 pb-16 text-center">
         <p className="mb-4 text-sm font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
-          Recall the perfect testimonial before every call
+          Proof, not memory
         </p>
         <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-          Find the right testimonial in 5 seconds — before every sales call.
+          Answer the objection while they’re still on the line.
         </h1>
         <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-          Stop digging through folders, screenshots, and DMs before every sales
-          call. ProofRecall collects testimonials with one simple link clients
-          actually finish — then organizes every quote so the right one surfaces
-          in seconds.
+          ProofRecall holds every testimonial you have ever collected, so you
+          find the right testimonial in 5 seconds — starting from what the
+          prospect actually said, not from the folder you saved it in.
+        </p>
+        <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-zinc-600 dark:text-zinc-400">
+          The proof is already yours. It is in a Gmail thread, a Slack message,
+          and a spreadsheet someone maintained in 2023. Import it once, and the
+          next time a deal hangs on whether a team like theirs ever adopted
+          something like this, you have the quote — name, role, company attached
+          — before the silence gets awkward.
         </p>
         <div id="waitlist" className="mt-8 flex flex-col items-center gap-3">
           <a
