@@ -34,7 +34,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { QA_USERS, app, brief, createChecks, renderedText, signIn, ssrCookie } from "./lib.mjs";
+import { QA_USERS, app, createChecks, renderedText, signIn, ssrCookie } from "./lib.mjs";
 
 const checks = createChecks();
 const MODE = process.argv[2] === "after" ? "after" : "before";

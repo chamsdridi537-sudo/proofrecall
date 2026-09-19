@@ -143,10 +143,18 @@ export default function Library({
   // instant, so there is no reason to hit Postgres on every character.
   const [debounced, setDebounced] = useState("");
   const effectiveQuery = chipQuery ?? query;
+  // The `searched` event says honestly whether a chip or a keyboard produced
+  // the query. The flag is frozen at the same instant `debounced` settles —
+  // reading `chipQuery` from the fetch effect's closure would report whatever
+  // the user did *last* while an older search was mid-debounce.
+  const chipAtDebounce = useRef(false);
   useEffect(() => {
-    const timer = setTimeout(() => setDebounced(effectiveQuery.trim()), DEBOUNCE_MS);
+    const timer = setTimeout(() => {
+      chipAtDebounce.current = chipQuery !== null;
+      setDebounced(effectiveQuery.trim());
+    }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [effectiveQuery]);
+  }, [effectiveQuery, chipQuery]);
 
   useEffect(() => {
     if (serverRowsPending.current) {
@@ -180,7 +188,7 @@ export default function Library({
           capture("searched", {
             hits: (body.results ?? []).length,
             tier: body.match_kind ?? null,
-            chip: chipQuery !== null,
+            chip: chipAtDebounce.current,
           });
         }
       })
