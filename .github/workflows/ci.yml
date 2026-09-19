@@ -66,6 +66,20 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
+      # TEMPORARY (Day 7 debugging): job logs are not anonymously readable, so
+      # echo the raw logs into annotations, which are. Delete when lint is
+      # green again.
+      - name: Surface raw logs as annotations
+        if: always()
+        run: |
+          for f in typecheck.log lint.log; do
+            [ -f "$f" ] || continue
+            head -n 40 "$f" | while IFS= read -r line; do
+              echo "::error file=$f::$line"
+            done
+          done
+        continue-on-error: true
+
       - name: Build
         run: npm run build
         env:
