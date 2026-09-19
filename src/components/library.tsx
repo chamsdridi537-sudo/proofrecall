@@ -1,25 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import CsvUpload from "@/components/csv-upload";
 import { attributedQuote } from "@/lib/attribution";
 import { capture, identifyUser } from "@/lib/analytics";
+import {
+  markCoachSeen,
+  readCoachServerSnapshot,
+  readCoachSnapshot,
+  subscribeCoach,
+} from "@/lib/coach";
 import { OBJECTIONS, searchedPhrase } from "@/lib/objections";
 import type { SearchResponse, TestimonialRow } from "@/lib/types";
 
 const DEBOUNCE_MS = 250;
-
-/**
- * The first-run coach's "seen it" flag (Day 7). Versioned so a future coach —
- * one that teaches tags or CSV, say — is a different key rather than a change
- * nobody's browser remembers declining.
- *
- * localStorage, not a column: the coach is about *this device's* first
- * experience, it must survive a signed-out visit, and a DB flag would make an
- * anonymous landing-page visitor into a row. If it ever earns real stakes —
- * showing the pulse until the first search on any device — it moves server-side.
- */
-const COACH_KEY = "proofrecall.coach.v1";
 const SAMPLE_BATCH = `"Switching to ProofRecall paid for itself in one week." — Dana Whitfield, Head of Ops, Northwind via email #roi #pricing
 "The onboarding call took twenty minutes instead of two hours." — Marcus Lee, Founder, Brightloop #onboarding
 "We finally stopped losing quotes in Slack threads." — Priya Raman, RevOps Lead, Kestrel #pricing #pain-points`;
@@ -104,33 +98,23 @@ export default function Library({
   const serverRowsPending = useRef(seeded);
 
   // --- the first-run coach (Day 7) -------------------------------------------
-  // `false` on the server and on the very first client paint, flipped by an
-  // effect — reading localStorage during render would hydrate differently on a
-  // returning visitor's machine than in the HTML that built it. The coach only
-  // arms for a device seeing a *non-empty* library for the first time: an empty
-  // one already has its teacher built into the markup, the numbered steps.
-  const [coachPending, setCoachPending] = useState(false);
-  useEffect(() => {
-    try {
-      if (!window.localStorage.getItem(COACH_KEY)) setCoachPending(true);
-    } catch {
-      // Private-mode throws on access; a visitor who cannot be remembered has
-      // already opted out of the coach, not out of the product.
-    }
-  }, []);
+  // The store is localStorage itself (`src/lib/coach.ts` explains why that is
+  // the shape React 19 asks for). The coach arms only for a device seeing a
+  // *non-empty* library for the first time: an empty one already has its
+  // teacher built into the markup, the numbered steps.
+  const coachStored = useSyncExternalStore(
+    subscribeCoach,
+    readCoachSnapshot,
+    readCoachServerSnapshot,
+  );
+  const coachPending = coachStored !== "seen";
 
   // Only the *first* rows matter here: whether this is someone's first look at
   // a library is decided before they type anything.
   const firstLibraryView = coachPending && (initialRows?.length ?? 0) > 0;
 
   const dismissCoach = useCallback(() => {
-    if (!coachPending) return;
-    try {
-      window.localStorage.setItem(COACH_KEY, "seen");
-    } catch {
-      /* same as above — worst case, they see the pulse again tomorrow */
-    }
-    setCoachPending(false);
+    if (coachPending) markCoachSeen();
   }, [coachPending]);
 
   // Search happens on this device as the logged-in person, not as an anonymous
